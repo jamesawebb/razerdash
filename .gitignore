@@ -1,0 +1,17 @@
+# Build artefacts (PACKAGE.md step 0).
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# Generated with pandoc at release time; the Markdown is the source.
+README.html
+INSTALL.html
+
+# Snapshots of the live ~/.config/razerdash files -- personal, never
+# committed. The shipped examples live under config/ and contrib/.
+/config.yaml
+/gmail-exporter.yaml
+
+# Per-machine Claude Code permissions.
+.claude/settings.local.json

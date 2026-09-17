@@ -1,0 +1,14 @@
+[Unit]
+Description=razerdash — Prometheus-driven Blackwidow V4 LEDs
+# openrazer-daemon runs as a user service too; start after the desktop session.
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/razerdash run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

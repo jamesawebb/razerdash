@@ -1,0 +1,26 @@
+[project]
+name = "razerdash"
+version = "0.1.0"
+description = "Drive Razer Blackwidow V4 LEDs from Prometheus metrics"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "James Webb" }]
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=5.4", "Jinja2>=3.0"]
+# NOTE: the OpenRazer Python client (`openrazer`) is a *system* package, not a
+# pip dependency. Install it via apt: `sudo apt install python3-openrazer`.
+
+[project.urls]
+Repository = "https://github.com/jamesawebb/razerdash"
+Issues = "https://github.com/jamesawebb/razerdash/issues"
+
+[project.scripts]
+razerdash = "razerdash.cli:main"
+
+[build-system]
+requires = ["setuptools>=77"]  # PEP 639 `license = "<SPDX>"` form
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["razerdash"]

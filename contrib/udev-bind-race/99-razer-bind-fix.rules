@@ -1,0 +1,18 @@
+# Close a race in openrazer's shipped /usr/lib/udev/rules.d/99-razer.rules.
+#
+# Upstream acts only on ACTION=="add", and razer_mount guards its
+# `chgrp -R plugdev` behind `[ -d /sys/bus/hid/drivers/$DRIVER/$DEVICE_ID ]`.
+# For a hid interface the "add" uevent can fire before the razer* driver has
+# finished binding and creating its sysfs attributes, so that test fails, the
+# chgrp is skipped, and the node is left root:root. openrazer-daemon then
+# refuses the device with
+#   CRITICAL | Could not access .../device_type, file is not owned by plugdev
+# and it silently vanishes from the DBus device list -- razerdash reports
+# "no device matching 'BlackWidow V4'" and idles.
+#
+# The "bind" uevent fires *after* the driver has attached and populated sysfs,
+# which is exactly when the group change needs to happen. This rule adds to the
+# shipped one rather than replacing it; on a boot that wins the original race
+# the chgrp simply runs twice, which is harmless.
+ACTION=="bind", SUBSYSTEM=="hid", ATTRS{idVendor}=="1532", \
+    RUN+="/bin/sh -c '/usr/bin/chgrp -R plugdev /sys%p || true'"

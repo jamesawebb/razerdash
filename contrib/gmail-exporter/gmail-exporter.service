@@ -1,0 +1,8 @@
+[Unit]
+Description=Export Gmail filter counts for razerdash (Prometheus textfile)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/gmail_count.py run

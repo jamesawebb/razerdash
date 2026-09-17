@@ -1,0 +1,9 @@
+[Unit]
+Description=Run gmail-exporter every minute
+
+[Timer]
+OnCalendar=minutely
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target

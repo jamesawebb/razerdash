@@ -1,0 +1,21 @@
+# gmail-exporter config. Copy to ~/.config/razerdash/gmail-exporter.yaml.
+
+# OAuth Desktop-app client JSON, downloaded from the Google Cloud console.
+client_secret: ~/.config/razerdash/gmail-client.json
+
+# Written by `gmail_count.py auth` (mode 0600). Delete + re-auth to rotate.
+token: ~/.config/razerdash/gmail-token.json
+
+# node_exporter textfile-collector directory (Debian default shown).
+output: /var/lib/prometheus/node-exporter/gmail.prom
+
+# Counting stops here (still reported, with gmail_messages_capped=1). Each 500
+# messages costs one API page; the default keeps a huge match cheap.
+max_messages: 2000
+
+# name -> Gmail search query (exactly what you would type in the Gmail search
+# box). Names become the `filter` label on gmail_messages.
+filters:
+  inbox-unread: "in:inbox is:unread"
+  github-unread: "from:github.com is:unread"
+  # oncall: "label:oncall is:unread newer_than:1d"

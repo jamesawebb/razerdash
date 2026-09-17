@@ -1,0 +1,248 @@
+# razerdash -- drive Razer Blackwidow V4 LEDs from Prometheus metrics.
+# Copy to ~/.config/razerdash/config.yaml and edit. Saved changes are hot-reloaded.
+
+prometheus:
+  url: http://cobra:9090
+  timeout: 3s
+
+refresh_interval: 5s      # how often to poll Prometheus and redraw
+idle_interval: 10s        # poll interval while the keyboard isn't attached (KVM)
+reload: on_change         # re-read this file when it changes on disk
+# Background for every key not lit by a binding (incl. unlit bar keys -- set a
+# binding's `off_color` to keep its bar region static instead).
+# `spectrum` animates (software rendition of Razer's spectrum-cycling chroma
+# effect); flip `effect:` to `static` to get the old fixed `color` wash back.
+background:
+  effect: spectrum        # static (default) | spectrum
+  color: "#0f0f0f"        # static only: the fixed background colour
+  fps: 10                 # spectrum only: frame rate, redraws per second (max 60)
+  period: 30s             # spectrum only: one full lap around the hue wheel
+  brightness: 0.4         # spectrum only: 0..1 -- low keeps the bars readable
+  saturation: 1.0         # spectrum only: 0..1
+
+# Night mode: LEDs off while all monitors are off (follows the swayidle
+# policy via sway IPC). `idle_timeout` (e.g. 20m) is the no-sway fallback:
+# dark after that long without input (needs the 'input' group); 0 = disabled.
+sleep:
+  follow_sway: true
+  idle_timeout: 0
+
+# The devices to drive; each `match` is a substring of the OpenRazer device
+# name. The FIRST entry is the primary device: bindings without a `device:`
+# field paint onto it, and the error key flashes there. Zones/keys no binding
+# paints show the shared `background` above, drawn with the same colour on
+# every device each tick -- unprogrammed mousepad zones stay in sync with the
+# keyboard's unused keys.
+devices:
+  keyboard:
+    match: "BlackWidow V4"
+    # 🗨️ Optional: produced by `razerdash calibrate`. Lets row/column groups skip
+    # the physical gaps in the matrix, and lets `type: keys` reference keys by name.
+    keymap: keymap.yaml
+
+  # Firefly V2 mousepad: 19 lighting zones as a 1x19 matrix (row 0, columns
+  # 0-18, running around the pad's edge). All zones are real. Target it from
+  # a binding with `device: mousepad`; the keymap (from `razerdash calibrate
+  # --match "Firefly V2" --output ~/.config/razerdash/mousepad.yaml`) names
+  # each zone by its physical position so bindings can say e.g.
+  # `key_group: { type: keys, keys: [left_top, left_up, left_down] }`.
+  mousepad:
+    match: "Firefly V2"
+    keymap: mousepad.yaml
+
+
+# ---------------------------------------------------------------------------
+key_groups:
+# ⚠️ Ensure `keymap` is set above before using any of these key groups, or they 
+#    will be skipped.
+#
+# Reusable key groups (placeholders). A binding's `key_group:` may be either an
+# inline spec (as the bindings below use) or the NAME of one of these groups.
+#
+# These reference keys by name, so they resolve once you have run
+# `razerdash calibrate`, named the keys accordingly, and set `keymap:` above.
+# Until calibrated, a binding that uses one is skipped with a warning rather
+# than lighting anything. The names here (m1.., f1.., "1".."0") must match the
+# names you give those keys during calibration.
+# ---------------------------------------------------------------------------
+
+  # Vertical macro column, top to bottom. M6 is physically separate -> excluded.
+  macro_m1_m5:
+    type: keys
+    # Exclude M6 because it's physically separate _and_ the five keys provide an
+    # easily recognizable bar for a percentage metric.
+    keys: [m1, m2, m3, m4, m5]  #, m6]  
+
+  keypad_vertical:
+    type: keys
+    keys: [num., num3, num6, num9, num*]
+
+  # Number-row digits, left to right (1..9 then 0). Excludes surrounding keys.
+  digits_1_0:
+    type: keys
+    keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+  
+  qwerty_row_1:
+    type: keys
+    keys: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"] 
+  
+  asdf_row_2:
+    type: keys
+    keys: ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";"]
+  
+  zxcv_row_3:
+    type: keys
+    keys: ["z", "x", "c", "v", "b", "n", "m", ",", ".", "/"]
+
+  # Function keys in physical clusters of four...
+  fn_f1_f4:  { type: keys, keys: [f1, f2, f3, f4] }
+  fn_f5_f8:  { type: keys, keys: [f5, f6, f7, f8] }
+  fn_f9_f12: { type: keys, keys: [f9, f10, f11, f12] }
+  # ...or the whole function row as one group.
+  fn_f1_f12:
+    type: keys
+    keys: [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12]
+
+  bottom_mousepad:
+    type: keys
+    keys: [bottom_left_cnr, bottom_left_far, bottom_left, bottom_right, bottom_right_far, bottom_right_cnr]
+
+
+# ---------------------------------------------------------------------------
+# Lighting methods (choose one per binding under `lighting.method`):
+#
+#   fill_threshold  - a BAR whose LENGTH grows with the value (lights 0..N keys
+#                     of the group), and whose COLOUR is the threshold band the
+#                     value falls in. Combines length + colour. Needs `thresholds`.
+#   fill_fixed      - a BAR of one fixed COLOUR; only the length varies with the
+#                     value. Needs `color`.
+#   solid_threshold - the WHOLE group lights up (length never changes); its
+#                     colour is the threshold band the value falls in. Needs
+#                     `thresholds`. 
+#   gradient        - the WHOLE group lights up in one colour, smoothly blended
+#                     between `stops` according to the value. Needs `stops`.
+#
+# `thresholds` / `stops` are lists of { at: <value>, color: <hex> }, sorted by `at`.
+#   - threshold: the band used is the highest `at` <= value (discrete steps).
+#   - gradient:  the colour is interpolated between the two surrounding stops.
+# `range: { min, max }` maps the metric onto 0..1 = bar length / gradient position.
+# `off_color` (optional, per binding) colours a fill bar's UNLIT keys; when unset
+# those keys fall through to the global `background` above.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Overlapping key groups (e.g. a vertical column crossing a horizontal row):
+# All bindings paint onto one shared picture, so any single key shows at most one
+# binding. Where two groups share a key, the one with the higher `priority` wins
+# that key; if priorities are equal, the binding listed LATER in this file wins.
+# Every non-shared key of each group is unaffected. Use `priority:` (default 0)
+# to control who wins.
+#
+# 🗨️ The duplicate-index check only rejects two bindings on the SAME row index or
+# the SAME column index (a clear typo); a row crossing a column shares just one
+# key and is allowed, resolved by priority/order as above.
+# ---------------------------------------------------------------------------
+
+# Metrics may use ${host} / ${fqdn} -- the local machine's short name / fqdn --
+# so one config shows each laptop's own stats (e.g. the local-cpu binding
+# below).
+
+
+# ---------------------------------------------------------------------------
+bindings:
+# ---------------------------------------------------------------------------
+
+  - name: local-mem-usage
+    label: "This laptop's CPU memory usage"
+    metric: '100 * (1 - node_memory_MemAvailable_bytes{instance="${host}.lan:9100"} / node_memory_MemTotal_bytes{instance="${host}.lan:9100"})'
+    range: { min: 0, max: 100 }
+    key_group: fn_f1_f4
+    lighting:
+      method: fill_threshold
+      thresholds:
+        - { at: 0,  color: "#00ff00" }
+        - { at: 50, color: "#ffff00" }
+        - { at: 70, color: "#ffaa00" }
+        - { at: 90, color: "#ff0000" }
+
+  - name: local-cpu-usage
+    label: "This laptop's CPU usage"
+    metric: '100 - (avg(rate(node_cpu_seconds_total{mode="idle",instance="${host}.lan:9100"}[1m])) * 100)'
+    range: { min: 0, max: 100 }
+    key_group: qwerty_row_1
+    lighting:
+      method: fill_threshold
+      thresholds:
+        - { at: 0,  color: "#00ff00" }
+        - { at: 50, color: "#ffff00" }
+        - { at: 70, color: "#ffaa00" }
+        - { at: 90, color: "#ff0000" }
+
+  - name: cobra-mem
+    label: "Cobra memory used"
+    device: keyboard
+    # device: mousepad
+    metric: '100 * (1 - node_memory_MemAvailable_bytes{instance="cobra.lan:9100"} / node_memory_MemTotal_bytes{instance="cobra.lan:9100"})'
+    range: { min: 0, max: 100 }
+    key_group: digits_1_0
+    # key_group: bottom_mousepad
+    lighting:
+      method: fill_threshold
+      thresholds:
+        - { at: 0,  color: "#00ff00" }
+        - { at: 50, color: "#ffff00" }
+        - { at: 70, color: "#ffaa00" }
+        - { at: 90, color: "#ff0000" }
+
+
+  # ---------------------------------------------------------------------------
+  # CLAUDE SESSION USAGE:
+  #
+  # These use razerdash's `session:` windows to mirror Anthropic's actual
+  # 5-hour session: the daemon finds when the current session opened (first
+  # activity after the previous window expired, anchored to the hour -- the
+  # same way /usage reset times fall on the hour) and substitutes ${session}
+  # with the time since then. So the bar counts THIS session only, snaps to
+  # zero at the reset, and stays dark until the next session opens.
+  # ---------------------------------------------------------------------------
+
+  - name: claude-session-tokens
+    label: "Claude session used tokens"
+    # 15372137 tokens = 100%, calibrated against /usage reading 63% on
+    # 2026-07-08 ~08:50 (raw session tokens 9,684,446 at that moment).
+    metric: '100 * sum(increase(claude_code_cost_usage_USD_total{user_email="**********@gmail.com"}[5h])) / 35.43'
+    session:
+      activity: 'sum(increase(claude_code_token_usage_tokens_total{user_email="**********@gmail.com"}[10m]))'
+    range: { min: 0, max: 100 }
+    key_group: macro_m1_m5
+    lighting:
+      method: fill_threshold
+      thresholds:
+        - { at: 0,  color: "#00ff00" }
+        - { at: 60, color: "#ffff00" }
+        - { at: 80, color: "#ffaa00" }
+        - { at: 90, color: "#ff0000" }
+
+
+  # ---------------------------------------------------------------------------
+  # MOUSEPAD (Firefly V2): uncomment to program zones. `device: mousepad`
+  # targets the pad; a key_group of `{ type: row, index: 0 }` is all 19 zones,
+  # or use coordinates for a slice, e.g. `{ type: keys, keys: [[0,0], [0,1]] }`.
+  # Zones no binding paints (all of them, while this stays commented out)
+  # follow the keyboard's background spectrum in lockstep.
+  # ---------------------------------------------------------------------------
+
+  - name: cobra-cpu-pad
+    label: "Cobra CPU across the mousepad"
+    device: mousepad
+    metric: '100 - (avg(rate(node_cpu_seconds_total{mode="idle",instance="cobra.lan:9100"}[1m])) * 100)'
+    range: { min: 0, max: 100 }
+    key_group: { type: row, index: 0 }
+    lighting:
+      method: fill_threshold
+      thresholds:
+        - { at: 0,  color: "#00ff00" }
+        - { at: 50, color: "#ffff00" }
+        - { at: 70, color: "#ffaa00" }
+        - { at: 90, color: "#ff0000" }
