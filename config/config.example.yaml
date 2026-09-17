@@ -211,7 +211,10 @@ bindings:
     label: "Claude session used tokens"
     # 15372137 tokens = 100%, calibrated against /usage reading 63% on
     # 2026-07-08 ~08:50 (raw session tokens 9,684,446 at that moment).
-    metric: '100 * sum(increase(claude_code_cost_usage_USD_total{user_email="**********@gmail.com"}[5h])) / 35.43'
+    # [${session}] = time since the current window opened (see `session:` below),
+    # so the bar counts THIS session only; a sliding [5h] would keep counting the
+    # previous session for up to five hours after the reset.
+    metric: '100 * sum(increase(claude_code_cost_usage_USD_total{user_email="**********@gmail.com"}[${session}])) / 35.43'
     session:
       activity: 'sum(increase(claude_code_token_usage_tokens_total{user_email="**********@gmail.com"}[10m]))'
     range: { min: 0, max: 100 }

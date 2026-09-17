@@ -15,3 +15,8 @@ INSTALL.html
 
 # Per-machine Claude Code permissions.
 .claude/settings.local.json
+
+# Editor swap/backup files.
+*.swp
+*.swo
+*~
