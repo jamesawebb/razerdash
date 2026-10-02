@@ -147,6 +147,50 @@ def cmd_list_devices(args) -> int:
     return rc
 
 
+def cmd_fix_blackout(args) -> int:
+    """Clear the KVM blackout by hand: cut the keyboard's USB port power, which
+    is the only thing that revives a wedged LED engine. The daemon does this on
+    attach when it can tell the keyboard is wedged (see blackout.py); this is
+    for when it can't -- the firmware test is unproven, so it also prints what
+    that test said, which is the data needed to confirm or drop it."""
+    from . import blackout
+    backend = get_backend(args.backend)
+    dev = backend.find_device(args.match)
+    if dev is None:
+        print(f"no device matching {args.match!r}")
+        return 1
+    node = dev.kbd_sysfs_node()
+    if node is None:
+        print(f"{dev.name}: no razerkbd sysfs node (not a keyboard?), "
+              "so no USB port to cycle")
+        return 1
+    try:
+        verdict = ("REJECTED -- the engine looks wedged" if blackout.wedged(node)
+                   else "accepted -- the firmware looks healthy")
+    except OSError as e:
+        verdict = f"unavailable ({e})"
+    print(f"{dev.name}: firmware write test: {verdict}")
+    port = blackout.usb_port(node)
+    if port is None:
+        print("  its hub exposes no per-port power switch; only a physical "
+              "replug will clear a blackout")
+        return 1
+    if args.test_only:
+        print(f"  port {port} (not touched: --test-only)")
+        return 0
+    print(f"  cutting power at {port} for {blackout.OFF_SECONDS:.0f}s")
+    try:
+        blackout.power_cycle(port)
+    except OSError as e:
+        print(f"cannot write {port}/disable ({e}); run as root, or install the "
+              "udev rule: sudo bash contrib/kvm-blackout/install.sh",
+              file=sys.stderr)
+        return 2
+    print("  power restored; the keyboard re-enumerates in a few seconds and "
+          "the daemon picks it up on its next probe")
+    return 0
+
+
 def cmd_calibrate(args) -> int:
     return calibrate_mod.run(args)
 
@@ -188,6 +232,14 @@ def main(argv=None) -> int:
     pl.add_argument("--match", default=None,
                     help="probe one name substring instead of the config's devices")
     pl.set_defaults(func=cmd_list_devices)
+
+    pf = sub.add_parser("fix-blackout",
+                        help="power-cycle a dark keyboard's USB port "
+                             "(the KVM blackout, see contrib/kvm-blackout/)")
+    pf.add_argument("--match", default="BlackWidow V4")
+    pf.add_argument("--test-only", action="store_true",
+                    help="report the firmware write test without cutting power")
+    pf.set_defaults(func=cmd_fix_blackout)
 
     pc = sub.add_parser("calibrate", help="interactively build a keymap")
     pc.add_argument("--match", default="BlackWidow V4")

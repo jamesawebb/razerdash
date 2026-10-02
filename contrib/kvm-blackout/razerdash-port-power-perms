@@ -1,0 +1,25 @@
+#!/bin/sh
+# Hand the `disable` of the hub port a USB device sits on to the plugdev group,
+# so razerdash can power-cycle it (the KVM blackout recovery) without root.
+# Called from 99-razerdash-port-power.rules with the device's kernel name.
+#
+#   razerdash-port-power-perms 3-4.1.3.2   # chgrp plugdev + chmod g+w
+#   razerdash-port-power-perms -n 3-4      # just print the attribute path
+set -u
+
+if [ "${1:-}" = "-n" ]; then dry=1; shift; else dry=; fi
+dev=${1:?usage: razerdash-port-power-perms [-n] <usb-sysname>}
+
+# Port attributes live under the parent hub's interface directory. A device on
+# a hub ("3-4.1.3.2") is port 2 of hub "3-4.1.3"; one straight on a root hub
+# ("3-4") is port 4 of bus 3, which the kernel spells differently.
+case $dev in
+    *.*) hub=${dev%.*};  port=${dev##*.}; dir=$hub:1.0/$hub-port$port ;;
+    *-*) bus=${dev%%-*}; port=${dev#*-};  dir=$bus-0:1.0/usb$bus-port$port ;;
+    *)   exit 0 ;;  # a root hub itself: it hangs off no port
+esac
+attr=/sys/bus/usb/devices/$dir/disable
+
+[ -n "$dry" ] && { echo "$attr"; exit 0; }
+[ -e "$attr" ] || exit 0   # hub without per-port power switching
+chgrp plugdev "$attr" && chmod g+w "$attr"

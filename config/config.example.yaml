@@ -39,6 +39,12 @@ devices:
     # 🗨️ Optional: produced by `razerdash calibrate`. Lets row/column groups skip
     # the physical gaps in the matrix, and lets `type: keys` reference keys by name.
     keymap: keymap.yaml
+    # 🗨️ Optional (default true): when the keyboard attaches with its LED engine
+    # wedged -- the KVM blackout, dark however it is drawn to -- power-cycle its
+    # USB port to reset it, instead of waiting for a physical replug. Needs the
+    # udev rule from contrib/kvm-blackout/; without it the daemon only reports
+    # the blackout. Set false to never touch the port.
+    recover_blackout: true
 
   # Firefly V2 mousepad: 19 lighting zones as a 1x19 matrix (row 0, columns
   # 0-18, running around the pad's edge). All zones are real. Target it from

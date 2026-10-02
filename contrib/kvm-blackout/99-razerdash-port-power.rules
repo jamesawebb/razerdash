@@ -1,0 +1,20 @@
+# Let razerdash cut the power to the USB port a Razer device is plugged into.
+#
+# That power cut is the only thing that clears the KVM blackout -- the keyboard
+# arriving from the other host with its LED engine wedged, dark however it is
+# drawn to. Nothing sent over USB reaches it; see contrib/kvm-blackout/README.md.
+#
+# The kernel exposes the cut as <hub>:1.0/<hub>-port<n>/disable on the parent
+# hub, root:root 0644 by default. This rule hands that one attribute -- for the
+# one port the device is actually on -- to plugdev, the group openrazer already
+# needs for the razerkbd attributes. It re-runs on every attach because a KVM
+# switch-in re-enumerates the hub, and the kernel recreates its port attributes
+# with it, permissions and all.
+#
+# `DEVTYPE` is not a match key -- udev spells it `ENV{DEVTYPE}`, and gets it
+# wrong by dropping the whole line ("Invalid key 'DEVTYPE'" in the udevd
+# journal, silence everywhere else), which is why install.sh runs
+# `udevadm verify` before it installs anything.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", \
+    ATTR{idVendor}=="1532", \
+    RUN+="/usr/local/sbin/razerdash-port-power-perms %k"

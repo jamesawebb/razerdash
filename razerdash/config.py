@@ -39,6 +39,11 @@ class PromConfig:
 class DeviceConfig:
     match: str = "BlackWidow V4"
     keymap: Optional[str] = None  # per-device; None => full rows/columns
+    # Power-cycle this device's USB port when it attaches with its LED engine
+    # wedged (the KVM blackout -- see blackout.py). Harmless where it can't
+    # apply: non-keyboards have no razerkbd node to test, and the port's
+    # `disable` is root-only until the contrib/kvm-blackout udev rule is in.
+    recover_blackout: bool = True
 
 
 @dataclass
@@ -321,6 +326,9 @@ def _devices(raw) -> dict:
           keyboard: { match: "BlackWidow V4", keymap: keymap.yaml }
           mousepad: "Firefly V2"        # shorthand: just the match string
 
+    `recover_blackout: false` opts a device out of the KVM-blackout power
+    cycle (blackout.py); it defaults to true.
+
     The historical single-device form (`device: {match: ...}` plus a top-level
     `keymap:`) still works and is equivalent to a lone 'keyboard' entry.
     """
@@ -344,9 +352,14 @@ def _devices(raw) -> dict:
             if not spec.get("match"):
                 raise ConfigError(f"device {name!r} needs a 'match'")
             km = spec.get("keymap")
+            recover = spec.get("recover_blackout", True)
+            if not isinstance(recover, bool):
+                raise ConfigError(f"device {name!r}: recover_blackout must be "
+                                  "true or false")
             out[str(name)] = DeviceConfig(
                 match=str(spec["match"]),
-                keymap=os.path.expanduser(km) if km else None)
+                keymap=os.path.expanduser(km) if km else None,
+                recover_blackout=recover)
         else:
             raise ConfigError(
                 f"device {name!r} must be a match string or a mapping")

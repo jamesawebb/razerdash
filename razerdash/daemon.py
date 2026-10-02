@@ -6,6 +6,7 @@ import os
 import signal
 import time
 
+from . import blackout
 from .config import ConfigWatcher
 from .context import metric_context
 from .keygroup import KeyMap, KeyMapError
@@ -34,6 +35,8 @@ class Daemon:
         self._sessions = {}  # binding name -> SessionTracker, kept across polls
         self._attached = set()  # config device names seen last tick, for logging
         self._mode_warned = set()  # devices already warned about driver mode
+        self._blackout_tries = {}  # device -> power cycles since it last lit
+        self._blackout_warned = set()  # (device, topic) already warned about
 
     def stop(self, *_):
         self._stop = True
@@ -55,15 +58,29 @@ class Daemon:
             if h is not None:
                 handles[name] = h
         attached = set(handles)
-        for name in sorted(attached - self._attached):
+        fresh = sorted(attached - self._attached)
+        for name in fresh:
             h = handles[name]
             log.info("device %r attached: %s (%dx%d)", name, h.name, h.rows, h.cols)
         for name in sorted(self._attached - attached):
             log.info("device %r detached", name)
             self._mode_warned.discard(name)
+            self._blackout_warned = {k for k in self._blackout_warned
+                                     if k[0] != name}
         self._attached = attached
         for name, h in handles.items():
             self._ensure_driver_mode(name, h)
+        # Only on attach: the blackout arrives with the device, and the test
+        # writes to the firmware, so it has no business running every tick.
+        for name in fresh:
+            if not config.devices[name].recover_blackout:
+                continue
+            if self._paused():
+                break  # calibrate/webedit/the probe owns the keyboard
+            if self._recover_blackout(name, handles[name]):
+                # The device is mid-power-cycle; this tick must not draw on it.
+                del handles[name]
+                self._attached.discard(name)
         return handles
 
     def _ensure_driver_mode(self, name, handle):
@@ -88,6 +105,68 @@ class Daemon:
             log.warning("device %r is stuck in device mode; it needs its "
                         "physical reset (unplug, hold Ctrl+CapsLock+Space, "
                         "plug back in while holding)", name)
+
+    def _recover_blackout(self, name, handle):
+        """KVM-blackout recovery. If the keyboard just attached with its LED
+        engine wedged -- dark whatever we draw, and no amount of USB traffic
+        will wake it (see blackout.py) -- cut its USB port's power to reset it.
+        Returns True when a power cycle was done, meaning the handle is now
+        stale: the device is about to detach and come back.
+
+        Each blackout gets at most MAX_ATTEMPTS cycles. The device re-attaching
+        re-runs the test, so a cycle that worked clears the counter and one that
+        didn't counts towards it, and after that the user is told to replug."""
+        node = handle.kbd_sysfs_node()
+        if node is None:
+            return False  # not a keyboard (no razerkbd node); nothing to test
+        try:
+            if not blackout.wedged(node):
+                if self._blackout_tries.pop(name, None):
+                    log.info("device %r is lit again after the power cycle", name)
+                return False
+        except OSError as e:
+            self._blackout_warn(name, "test",
+                                "cannot test the LED engine on %r (%s); a KVM "
+                                "blackout will need a manual replug", name, e)
+            return False
+        tries = self._blackout_tries.get(name, 0)
+        if tries >= blackout.MAX_ATTEMPTS:
+            self._blackout_warn(name, "gaveup",
+                                "device %r is still dark after %d power "
+                                "cycles; it needs a physical replug", name, tries)
+            return False
+        port = blackout.usb_port(node)
+        if port is None:
+            self._blackout_warn(name, "port",
+                                "device %r is dark (LED engine wedged) but its "
+                                "USB port has no 'disable' to power-cycle; "
+                                "replug it to clear this", name)
+            return False
+        log.warning("device %r attached dark (LED engine wedged, the KVM "
+                    "blackout); cutting power at %s for %.1fs -- the keyboard "
+                    "stops responding until it comes back",
+                    name, os.path.basename(port), blackout.OFF_SECONDS)
+        try:
+            blackout.power_cycle(port)
+        except OSError as e:
+            self._blackout_warn(name, "denied",
+                                "cannot power-cycle %r (%s); run `sudo bash "
+                                "contrib/kvm-blackout/install.sh` to allow it, "
+                                "or replug the keyboard", name, e)
+            return False
+        self._blackout_tries[name] = tries + 1
+        # Let the device come back and openrazer finish its init writes before
+        # anything draws a custom frame at it.
+        self._sleep(blackout.SETTLE_SECONDS)
+        return True
+
+    def _blackout_warn(self, name, topic, msg, *args):
+        """Warn once per device per topic, reset when the device detaches, so a
+        recurring blackout is reported on each switch-in but not every tick."""
+        if (name, topic) in self._blackout_warned:
+            return
+        self._blackout_warned.add((name, topic))
+        log.warning(msg, *args)
 
     def run(self):
         signal.signal(signal.SIGTERM, self.stop)

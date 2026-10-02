@@ -25,6 +25,12 @@ class DeviceHandle:
     def ensure_driver_mode(self):
         return None
 
+    def kbd_sysfs_node(self):
+        """This device's razerkbd sysfs directory, or None when it has none
+        (not a keyboard, or no hardware at all). The KVM-blackout recovery in
+        blackout.py needs it to reach the firmware behind openrazer."""
+        return None
+
 
 # --------------------------------------------------------------------------- #
 # OpenRazer (real hardware)
@@ -56,7 +62,7 @@ class OpenRazerDevice(DeviceHandle):
         driver mode, or not a razerkbd device), "fixed" after re-asserting
         driver mode, "stuck" if the re-assert didn't take (the keyboard needs
         its physical reset). Raises OSError on sysfs access problems."""
-        node = self._kbd_sysfs_node()
+        node = self.kbd_sysfs_node()
         if node is None:
             return None
         path = os.path.join(node, "device_mode")
@@ -68,11 +74,11 @@ class OpenRazerDevice(DeviceHandle):
         with open(path, "rb") as f:
             return "fixed" if f.read(1) == b"\x03" else "stuck"
 
-    def _kbd_sysfs_node(self):
+    def kbd_sysfs_node(self):
         """This keyboard's razerkbd sysfs directory (matched by serial), or
-        None. Only keyboards get the driver-mode babysitting: openrazer never
-        puts other device types (e.g. the Firefly) into driver mode, and they
-        render custom frames fine without it."""
+        None. Only keyboards get the KVM babysitting (driver mode, blackout
+        recovery): openrazer never puts other device types (e.g. the Firefly)
+        into driver mode, and they render custom frames fine without it."""
         if not self._serial:
             return None
         for p in glob.glob(os.path.join(RAZERKBD_SYSFS, "*", "device_serial")):
