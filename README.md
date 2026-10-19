@@ -23,14 +23,14 @@ succeeds**. Two different faults look like that:
   unplug, hold Ctrl+CapsLock+Space, plug back in while holding.
 - the keyboard's LED controller arrives wedged, with `device_mode` reading
   `0x03` and every LED dark, Caps Lock included. Nothing sent over USB clears
-  it — not even a full re-enumeration — only cutting the port's power. The
-  daemon does that for you where the hub can: `razerdash fix-blackout` cuts the
-  keyboard's hub port power (`disable` 1 → 3 s → 0), which is a replug without
-  the cable, and on attach the daemon tries the same thing by itself if the
-  firmware has stopped accepting writes — an unproven test that fails safe, so
-  keep the command in reach. Both need write access to that attribute: install
-  [contrib/kvm-blackout/](contrib/kvm-blackout/)'s udev rule. `recover_blackout:
-  false` turns the automatic half off per device.
+  it — not even a full re-enumeration — only cutting the port's power.
+  `razerdash fix-blackout` does that where the hub can: it cuts the keyboard's
+  hub port power (`disable` 1 → 3 s → 0), which is a replug without the cable.
+  It needs write access to that attribute: install
+  [contrib/kvm-blackout/](contrib/kvm-blackout/)'s udev rule. The daemon can't
+  do it for you: nothing in software tells a wedged keyboard from a healthy
+  one, so a dark Caps Lock indicator is the tell, and running the command is
+  up to you.
 
 ```
  Prometheus (cobra:9090)  ──HTTP──▶  razerdash  ──OpenRazer matrix──▶  Blackwidow V4
@@ -155,7 +155,6 @@ devices:
   keyboard:
     match: "BlackWidow V4"
     keymap: keymap.yaml     # per-device; the pad below needs none
-    recover_blackout: true  # default; see the KVM blackout above
   mousepad: "Firefly V2"    # 19 zones = a 1x19 matrix (row 0, cols 0-18)
 ```
 
@@ -485,7 +484,7 @@ for t in tests/test_*.py; do ~/.local/share/pipx/venvs/razerdash/bin/python "$t"
 | `razerdash explain`      | plain-English summary of the config (`--values` adds live readings) |
 | `razerdash query`        | print each binding's value / lit-key count     |
 | `razerdash list-devices` | show each configured device's match + matrix size|
-| `razerdash fix-blackout` | power-cycle a dark keyboard's USB port (`--test-only` just reports) |
+| `razerdash fix-blackout` | power-cycle a dark keyboard's USB port (`--dry-run` just reports) |
 | `razerdash calibrate`    | interactively build a keymap                   |
 | `razerdash webedit`      | edit the keymap graphically in a browser       |
 

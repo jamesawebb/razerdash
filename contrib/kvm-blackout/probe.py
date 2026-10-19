@@ -6,9 +6,9 @@ unplugging it:
     python3 contrib/kvm-blackout/probe.py            # snapshot + recovery ladder
     python3 contrib/kvm-blackout/probe.py --snapshot # read-only state dump only
 
-The full run also writes: a brightness write/read-back trace (the candidate
-detector razerdash uses) and the effects each recovery step tests. --snapshot
-touches nothing.
+The full run also writes: a brightness write/read-back trace (a detector
+candidate, ruled out on 2026-10-19) and the effects each recovery step tests.
+--snapshot touches nothing.
 
 Use the system python3 (it has python3-openrazer), not the pipx venv. razerdash
 is paused for the duration via its calibrate marker, so it can't paint over
@@ -166,12 +166,12 @@ def check_lit(dev):
 
 
 def brightness_trace(node):
-    """Write a brightness and watch the read-back settle. This is the candidate
-    blackout detector: on healthy hardware the written value lands within ~30ms
-    (the read issued immediately after a write always answers 0, and junk values
-    turn up in between), so if a *dark* keyboard never shows it, razerdash can
-    detect the blackout on attach. If it lands exactly like a healthy one, the
-    detector is dead and razerdash can only offer `fix-blackout`."""
+    """Write a brightness and watch the read-back settle. This was the
+    candidate blackout detector: on healthy hardware the written value lands
+    within ~30ms (the read issued immediately after a write always answers 0,
+    and junk values turn up in between). During the 2026-10-19 blackout it
+    landed exactly as on a healthy keyboard, so razerdash dropped it and offers
+    only `fix-blackout`. Kept in the log in case a future firmware differs."""
     path = os.path.join(node, "matrix_brightness")
     with open(path) as f:
         original = f.read().strip()

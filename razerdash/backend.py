@@ -27,8 +27,8 @@ class DeviceHandle:
 
     def kbd_sysfs_node(self):
         """This device's razerkbd sysfs directory, or None when it has none
-        (not a keyboard, or no hardware at all). The KVM-blackout recovery in
-        blackout.py needs it to reach the firmware behind openrazer."""
+        (not a keyboard, or no hardware at all). `razerdash fix-blackout`
+        needs it to find the keyboard's USB port (blackout.py)."""
         return None
 
 

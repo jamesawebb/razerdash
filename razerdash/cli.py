@@ -149,10 +149,10 @@ def cmd_list_devices(args) -> int:
 
 def cmd_fix_blackout(args) -> int:
     """Clear the KVM blackout by hand: cut the keyboard's USB port power, which
-    is the only thing that revives a wedged LED engine. The daemon does this on
-    attach when it can tell the keyboard is wedged (see blackout.py); this is
-    for when it can't -- the firmware test is unproven, so it also prints what
-    that test said, which is the data needed to confirm or drop it."""
+    is the only thing that revives a wedged LED engine. Nothing can tell a
+    wedged keyboard from a healthy one in software (see blackout.py), so the
+    daemon never does this itself: a dark keyboard with a dark Caps Lock is
+    the diagnosis, and this command is the cure."""
     from . import blackout
     backend = get_backend(args.backend)
     dev = backend.find_device(args.match)
@@ -164,21 +164,19 @@ def cmd_fix_blackout(args) -> int:
         print(f"{dev.name}: no razerkbd sysfs node (not a keyboard?), "
               "so no USB port to cycle")
         return 1
-    try:
-        verdict = ("REJECTED -- the engine looks wedged" if blackout.wedged(node)
-                   else "accepted -- the firmware looks healthy")
-    except OSError as e:
-        verdict = f"unavailable ({e})"
-    print(f"{dev.name}: firmware write test: {verdict}")
     port = blackout.usb_port(node)
     if port is None:
-        print("  its hub exposes no per-port power switch; only a physical "
-              "replug will clear a blackout")
+        print(f"{dev.name}: its hub exposes no per-port power switch; only a "
+              "physical replug will clear a blackout")
         return 1
-    if args.test_only:
-        print(f"  port {port} (not touched: --test-only)")
-        return 0
-    print(f"  cutting power at {port} for {blackout.OFF_SECONDS:.0f}s")
+    if args.dry_run:
+        allowed = os.access(os.path.join(port, "disable"), os.W_OK)
+        print(f"{dev.name}: would cut power at {port} "
+              f"({'allowed' if allowed else 'not allowed: install the udev rule'}"
+              "; not touched: --dry-run)")
+        return 0 if allowed else 2
+    print(f"{dev.name}: cutting power at {port} for "
+          f"{blackout.OFF_SECONDS:.0f}s")
     try:
         blackout.power_cycle(port)
     except OSError as e:
@@ -237,8 +235,9 @@ def main(argv=None) -> int:
                         help="power-cycle a dark keyboard's USB port "
                              "(the KVM blackout, see contrib/kvm-blackout/)")
     pf.add_argument("--match", default="BlackWidow V4")
-    pf.add_argument("--test-only", action="store_true",
-                    help="report the firmware write test without cutting power")
+    pf.add_argument("--dry-run", action="store_true",
+                    help="show the port it would power-cycle, and whether it "
+                         "may, without cutting power")
     pf.set_defaults(func=cmd_fix_blackout)
 
     pc = sub.add_parser("calibrate", help="interactively build a keymap")

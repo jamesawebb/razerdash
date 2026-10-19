@@ -60,8 +60,7 @@ What that settles:
   brightness — is identical dark and healthy, while draws are fire-and-forget.
   **Nothing is known to tell the two states apart in software.** What the next
   blackout should answer: does a write still land when the read is given its
-  settle time? `razerdash fix-blackout --test-only` reports exactly that and
-  touches nothing.
+  settle time? (Answered on 2026-10-19: yes, it does. See below.)
 - Step 5's follow-up custom-frame check was answered **no — it stayed white**.
   The first hardware static effect lit the keys; the red flash that should have
   followed never showed. Either the writes after the first were dropped while
@@ -70,27 +69,47 @@ What that settles:
   being unconvincing rather than a second fault — it now holds each state for
   2 s and paints a pattern no hardware effect can imitate.
 
-## Automatic recovery
+## Result: the write test can't see it (2026-10-19)
 
-razerdash acts on the result above. `razerdash/blackout.py` is the mechanism --
-find the keyboard's hub port, cut its power for 3 s -- and there are two ways in.
+Caught at about 11:07. The keyboard was dark, with the Caps Lock indicator dark
+too, while the Firefly stayed lit. `device_mode` read `03 00` and
+`matrix_brightness` read 255. razerdash was drawing normally (spectrum
+background plus bars) and every draw reported success. The keyboard had
+enumerated at quark's boot at 10:51:14, the second of two reboots that morning,
+and the KVM kept it powered throughout. Whether the other host had driven it
+first is not known.
 
-**By hand**, whenever the keyboard is dark:
+| When | What ran | Firmware write test said |
+|---|---|---|
+| 10:51:17 | daemon's attach-time check (`blackout.wedged()`) | healthy: nothing logged, no power cut |
+| ~11:07 | `razerdash fix-blackout --test-only` | accepted, "the firmware looks healthy" |
+| 11:08:26 | `razerdash fix-blackout` | accepted, then cut power at `3-4.1.3-port2` |
+
+The keyboard re-enumerated at 11:08:29 and came back lit, Caps Lock included.
+
+So a wedged keyboard still takes a `matrix_brightness` write and reads it back
+inside the settle window, exactly like a healthy one. The write test can't
+tell the two apart, so it has come out of razerdash: `blackout.wedged()`, the
+daemon's attach-time recovery, the `recover_blackout` option (now ignored if
+set) and `fix-blackout --test-only`. The power cycle itself worked again, as it
+did on 2026-10-01.
+
+## Recovery
+
+`razerdash/blackout.py` is the mechanism -- find the keyboard's hub port, cut
+its power for 3 s -- and `razerdash fix-blackout` is the only way in. Run it
+whenever the keyboard is dark **and its Caps Lock indicator stays dark too**:
 
 ```sh
-razerdash fix-blackout               # power-cycle the keyboard's USB port
-razerdash fix-blackout --test-only   # just report the firmware write test
+razerdash fix-blackout            # power-cycle the keyboard's USB port
+razerdash fix-blackout --dry-run  # show the port, and whether it may, untouched
 ```
 
-**Automatically**, on attach: the daemon asks the firmware whether it still
-takes a write (`Daemon._recover_blackout`) and power-cycles the port if it
-doesn't. That test is **unproven** -- see the detector bullet above -- and is
-built to fail safe: a wedged keyboard that still accepts brightness writes reads
-as healthy, nothing happens, and `fix-blackout` is there to finish the job. If
-the next blackout shows the test does fire, this becomes the whole fix; if it
-shows the test can't see it, the detection comes out and the command stays.
+The daemon picks the keyboard back up on its next probe. The daemon never does
+this by itself. With no detector, the only automatic option would be to cut
+power blindly on every attach, to a keyboard someone may be typing on.
 
-Either way the power cut needs write access to the port's `disable`:
+The power cut needs write access to the port's `disable`:
 
 ```sh
 sudo bash contrib/kvm-blackout/install.sh
@@ -99,8 +118,8 @@ sudo bash contrib/kvm-blackout/install.sh
 installs the udev rule that hands that one attribute to `plugdev` -- the group
 openrazer already needs for the razerkbd attributes -- for the one port the
 keyboard is on, and then proves the rule fires by resetting the attribute and
-replaying a real `add` uevent. Without the rule the daemon only reports the
-blackout and asks for a replug; it never tries to become root.
+replaying a real `add` uevent. Without the rule `fix-blackout` says it can't
+and asks for a replug; it never tries to become root.
 
 If the rule ever stops firing, parse it first: `udevadm verify
 99-razerdash-port-power.rules` (no root needed). udev **drops a line it cannot
@@ -108,32 +127,6 @@ parse** and says so only in `journalctl -b -t systemd-udevd`, so a bad match key
 looks exactly like a rule that ran and did nothing — `DEVTYPE=="usb_device"`
 instead of `ENV{DEVTYPE}` cost one round of that, which is why install.sh now
 verifies before it installs.
-
-What the automatic path looks like in the journal:
-
-```
-WARNING device 'keyboard' attached dark (LED engine wedged, the KVM blackout);
-        cutting power at 3-4.1.3-port2 for 3.0s -- the keyboard stops
-        responding until it comes back
-INFO    device 'keyboard' detached
-INFO    device 'keyboard' attached: Razer BlackWidow V4 (8x23)
-INFO    device 'keyboard' is lit again after the power cycle
-```
-
-The guard rails, because a false positive cuts power to a keyboard someone may
-be typing on:
-
-- **Attach only.** The test writes to the firmware, so it runs on the probe
-  where the device first appears, never every tick, and never while
-  `calibrate`/`webedit`/this probe hold the pause marker.
-- **Confirmed three times**, each write given its settle window, and the
-  original brightness always put back.
-- **Two cycles per blackout.** The device re-attaching re-runs the test: a cycle
-  that worked clears the count, one that didn't counts towards it, and after the
-  second the daemon asks for a physical replug and goes quiet.
-- **Opt out** per device with `recover_blackout: false`; and it is a no-op
-  wherever the mechanism cannot apply -- a non-keyboard (no razerkbd node), a hub
-  with no per-port power switch, a `disable` that isn't writable.
 
 ## What is known
 
@@ -190,8 +183,9 @@ each one whether the keys lit up:
 After any step that lights the keyboard, it checks that custom frames (what
 razerdash sends) also work, by painting alternating columns no hardware effect
 can produce and holding them while it asks. The full run also traces a
-brightness write's read-back — the candidate detector, and the one thing the
-next blackout still has to answer. The log goes to
+brightness write's read-back, the detector candidate that was ruled out on
+2026-10-19. It is kept in the log in case a future firmware behaves
+differently. The log goes to
 `~/.local/state/razerdash/blackout-*.log`.
 
 `--snapshot` does the read-only state dump only, and is safe to run at any

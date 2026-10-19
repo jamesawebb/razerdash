@@ -56,8 +56,8 @@ ATTR="$("$HELPER_DST" -n "$DEV")"
 echo "==> testing against $DEV -> $ATTR"
 if [ ! -e "$ATTR" ]; then
     echo "!! this hub exposes no per-port power switch ('disable' is missing),"
-    echo "   so the blackout can only be cleared by replugging. razerdash will"
-    echo "   say so in the journal rather than cutting power."
+    echo "   so the blackout can only be cleared by replugging. 'razerdash"
+    echo "   fix-blackout' will say so rather than cutting power."
     exit 1
 fi
 
