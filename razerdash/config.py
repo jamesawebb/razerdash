@@ -39,6 +39,9 @@ class PromConfig:
 class DeviceConfig:
     match: str = "BlackWidow V4"
     keymap: Optional[str] = None  # per-device; None => full rows/columns
+    # Write pacing; None => the model default (backend.PACING).
+    write_gap: Optional[float] = None     # settle time before each command
+    min_interval: Optional[float] = None  # minimum time between frames
 
 
 @dataclass
@@ -344,9 +347,16 @@ def _devices(raw) -> dict:
             if not spec.get("match"):
                 raise ConfigError(f"device {name!r} needs a 'match'")
             km = spec.get("keymap")
+            pacing = {}
+            for key in ("write_gap", "min_interval"):
+                val = parse_duration(spec.get(key))
+                if val is not None and val < 0:
+                    raise ConfigError(f"device {name!r}: {key} must be >= 0, "
+                                      f"got {val:g}")
+                pacing[key] = val
             out[str(name)] = DeviceConfig(
                 match=str(spec["match"]),
-                keymap=os.path.expanduser(km) if km else None)
+                keymap=os.path.expanduser(km) if km else None, **pacing)
         else:
             raise ConfigError(
                 f"device {name!r} must be a match string or a mapping")

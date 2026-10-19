@@ -34,6 +34,11 @@ class Daemon:
         self._sessions = {}  # binding name -> SessionTracker, kept across polls
         self._attached = set()  # config device names seen last tick, for logging
         self._mode_warned = set()  # devices already warned about driver mode
+        # Per device: the metric frame last written to it, and the one last
+        # reported at INFO -- "drew" is INFO only when they differ, so an
+        # animated background or an unchanged bar doesn't log every poll.
+        self._sent = {}
+        self._logged = {}
 
     def stop(self, *_):
         self._stop = True
@@ -53,6 +58,7 @@ class Daemon:
         for name, dcfg in config.devices.items():
             h = self.backend.find_device(dcfg.match)
             if h is not None:
+                h.pace(dcfg.write_gap, dcfg.min_interval)
                 handles[name] = h
         attached = set(handles)
         for name in sorted(attached - self._attached):
@@ -61,6 +67,8 @@ class Daemon:
         for name in sorted(self._attached - attached):
             log.info("device %r detached", name)
             self._mode_warned.discard(name)
+            self._sent.pop(name, None)
+            self._logged.pop(name, None)
         self._attached = attached
         for name, h in handles.items():
             self._ensure_driver_mode(name, h)
@@ -81,6 +89,7 @@ class Daemon:
                             "switch may leave its LEDs dark", name, e)
             return
         if got == "fixed":
+            handle.forget()  # the last frame never showed; send it again
             log.info("device %r was in device mode (draws silently ignored -- "
                      "the KVM-switch blackout); re-asserted driver mode", name)
         elif got == "stuck" and name not in self._mode_warned:
@@ -119,6 +128,8 @@ class Daemon:
                 log.info("calibration in progress; pausing rendering" if paused
                          else "calibration finished; resuming rendering")
             if paused:
+                for device in handles.values():
+                    device.forget()  # calibrate drew over it; redraw on resume
                 self._sleep(config.idle_interval)
                 if self.once:
                     break
@@ -135,7 +146,9 @@ class Daemon:
             if night:
                 for device in handles.values():
                     try:
-                        device.clear()  # redone each tick: self-heals a KVM switch-in
+                        # Written once (identical clears are skipped); a KVM
+                        # switch-in is a fresh handle, so it gets cleared too.
+                        device.clear()
                     except Exception:
                         pass  # device went away; re-probed next cycle
                 # Re-check faster than idle_interval: waking should feel
@@ -160,7 +173,7 @@ class Daemon:
             bgc = config.background.color_at(time.monotonic())
             for name in list(handles):
                 try:
-                    handles[name].draw(frames[name], bgc)
+                    self._draw(name, handles[name], frames[name], bgc)
                 except Exception as e:
                     # Device vanished between find_device() and here (KVM switch).
                     log.warning("draw failed on %r (%s); re-probing next cycle",
@@ -168,11 +181,19 @@ class Daemon:
                     del handles[name]
             if handles:
                 names = "+".join(h.name for h in handles.values())
+                changed = [n for n in handles
+                           if n in self._sent and self._sent[n] != self._logged.get(n)]
+                for n in changed:
+                    self._logged[n] = self._sent[n]
                 if self.watcher.error:
                     log.warning("drew %s: %s  [CONFIG ERROR: %s]", names,
                                 self._fmt(summary), self.watcher.error)
+                elif changed:
+                    log.info("drew %s: %s",
+                             "+".join(handles[n].name for n in changed),
+                             self._fmt(summary))
                 else:
-                    log.info("drew %s: %s", names, self._fmt(summary))
+                    log.debug("unchanged on %s: %s", names, self._fmt(summary))
             if self.once:
                 break
             if not handles:
@@ -189,6 +210,12 @@ class Daemon:
         # a `--once` render is meant to persist for inspection.
         if self._stop:
             self._cleanup()
+
+    def _draw(self, name, handle, frame, bgc):
+        """Draw one device's metric frame; remembers it when it was actually
+        written (False means skipped: identical, or inside min_interval)."""
+        if handle.draw(frame, bgc) is not False:
+            self._sent[name] = frame
 
     @staticmethod
     def _fmt(summary):
@@ -259,11 +286,14 @@ class Daemon:
             return
         tick = 1.0 / bg.fps
         end = time.monotonic() + duration
+        settled = 0.0
         while not self._stop and handles:
             remaining = end - time.monotonic()
             if remaining <= 0:
                 break
-            self._sleep(min(tick, remaining))
+            # A paced device's settle gaps (the Firefly's) already spent part
+            # of this tick; count them, so pacing doesn't lower the frame rate.
+            self._sleep(min(max(0.0, tick - settled), remaining))
             if self._stop:
                 break
             if self._paused() or self._night(config):
@@ -271,11 +301,13 @@ class Daemon:
                 # off mid-window; stop drawing NOW, not at the next poll.
                 break
             bgc = bg.color_at(time.monotonic())
+            before = sum(h.waited for h in handles.values())
             for name in list(handles):
                 try:
-                    handles[name].draw(frames[name], bgc)
+                    self._draw(name, handles[name], frames[name], bgc)
                 except Exception:
                     del handles[name]  # went away (KVM); re-probed next cycle
+            settled = max(0.0, sum(h.waited for h in handles.values()) - before)
 
     def _flash_error(self, handles, frames, config, duration):
         """Blink the error key on the primary device; other devices keep
@@ -310,6 +342,7 @@ class Daemon:
             for dcfg in cfg.devices.values():
                 device = self.backend.find_device(dcfg.match)
                 if device is not None:
+                    device.forget()  # write the clear despite min_interval
                     device.clear()
                     device.restore()
         except Exception:
