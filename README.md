@@ -165,6 +165,31 @@ unprogrammed zones — shows the shared `background`, drawn with the same colour
 on every device each tick, so an animated background cycles in lockstep across
 the keyboard and the pad.
 
+A frame identical to the one a device already shows is not written again, so
+with a static background the LEDs only see traffic when a bar changes. The
+journal's `drew …` line follows the same rule: it is logged at INFO when a
+bar actually changed on a device, and at DEBUG (`-v`) otherwise.
+
+Writes are paced per device. The Firefly V2 is slow to apply a frame: a
+command that arrives straight after one makes the kernel log
+`razeraccessory: Response doesn't match request` (class `0f`, id `03`), so
+razerdash leaves it a settle gap before every command it sends, including
+after the keyboard's write. An animated background's tick counts that time,
+so pacing doesn't lower its frame rate. Two optional keys override the
+built-in defaults:
+
+```yaml
+  mousepad:
+    match: "Firefly V2"
+    write_gap: 30ms         # settle time before each command (Firefly default)
+    min_interval: 5s        # at most one frame per 5 s (default 0: uncapped,
+                            # so it keeps up with an animated background)
+```
+
+A device that disappears (KVM switch, unplug, an openrazer/DBus error) is not
+written to again; it is picked up afresh, and fully redrawn, on the first
+probe after openrazer-daemon reports it again.
+
 The historical single-device form (a top-level `device: {match: ...}` plus
 `keymap:`) still parses and is equivalent to a lone `keyboard:` entry.
 

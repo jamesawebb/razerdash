@@ -236,7 +236,10 @@ def _api_get(path: str, params: dict, bearer: str) -> dict:
     url = f"{API}/{path}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {bearer}"})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+        body = resp.read()
+    # A `fields` mask that selects nothing -- a query with no matches has no
+    # messages and no nextPageToken -- comes back as 204 No Content, not {}.
+    return json.loads(body) if body.strip() else {}
 
 
 def count_messages(bearer: str, query: str, max_messages: int) -> tuple[int, bool]:
