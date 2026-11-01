@@ -6,3 +6,6 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/gmail_count.py run
+# `run` prints only on failure; without this its reason is logged at info,
+# below systemd's own "Failed to start" lines.
+SyslogLevel=err
